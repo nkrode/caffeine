@@ -15,6 +15,7 @@
  */
 package com.github.benmanes.caffeine.cache;
 
+import static com.jayway.awaitility.Awaitility.await;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
 import java.time.LocalTime;
@@ -54,6 +55,8 @@ public final class Stresser {
   private final Stopwatch stopwatch;
   private final boolean reads = false;
 
+  volatile int times;
+
   public Stresser() {
     ThreadFactory threadFactory = new ThreadFactoryBuilder()
         .setPriority(Thread.MAX_PRIORITY)
@@ -86,10 +89,27 @@ public final class Stresser {
           cache.getIfPresent(key);
         } else {
           cache.put(key, key);
-          //Thread.yield();
+        }
+        if (times > 5) {
+          return;
         }
       }
     });
+
+    System.out.println("Waiting...");
+    try {
+      await().until(() -> {
+        cache.cleanUp();
+        local.evictionLock.lock();
+        int pendingWrites = local.writeBuffer().size();
+        local.evictionLock.unlock();
+        return pendingWrites == 0;
+      });
+    } catch (Throwable t) {
+      status();
+      t.printStackTrace();
+    }
+    System.out.println("Done!");
   }
 
   private void status() {
@@ -116,6 +136,8 @@ public final class Stresser {
     System.out.printf("Allocated Memory = %,d bytes%n", allocatedMemory);
 
     System.out.println();
+
+    times++;
   }
 
   public static void main(String[] args) throws Exception {
