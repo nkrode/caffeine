@@ -51,6 +51,7 @@ import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinTask;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BiFunction;
@@ -178,7 +179,7 @@ abstract class BoundedLocalCache<K, V> extends BLCHeader.DrainStatusRef<K, V>
     drainBuffersTask = new PerformCleanupTask();
     data = new ConcurrentHashMap<>(builder.getInitialCapacity());
     evictionLock = (builder.getExecutor() instanceof ForkJoinPool)
-        ? new NonReentrantLock()
+        ? new ReentrantLock()
         : new ReentrantLock();
     nodeFactory = NodeFactory.getFactory(builder.isStrongKeys(), builder.isWeakKeys(),
         builder.isStrongValues(), builder.isWeakValues(), builder.isSoftValues(),
@@ -988,13 +989,23 @@ abstract class BoundedLocalCache<K, V> extends BLCHeader.DrainStatusRef<K, V>
    */
   void performCleanUp() {
     evictionLock.lock();
+    System.out.printf("begin: performCleanUp -> %s%n", dStatus.get());
     try {
       lazySetDrainStatus(PROCESSING_TO_IDLE);
       maintenance();
+    } catch (Throwable t) {
+      t.printStackTrace();
+      System.exit(1);
     } finally {
-      if ((drainStatus() != PROCESSING_TO_IDLE) || !casDrainStatus(PROCESSING_TO_IDLE, IDLE)) {
-        lazySetDrainStatus(REQUIRED);
+      for (;;) {
+        int status = drainStatus();
+        if ((status == PROCESSING_TO_IDLE) && casDrainStatus(PROCESSING_TO_IDLE, IDLE)) {
+          break;
+        } else if (casDrainStatus(status, REQUIRED)) {
+          break;
+        }
       }
+      System.out.printf("exit: performCleanUp -> %s%n", dStatus.get());
       evictionLock.unlock();
     }
   }
@@ -3242,6 +3253,7 @@ final class BLCHeader {
 
     /** The draining status of the buffers. */
     volatile int drainStatus = IDLE;
+    final AtomicInteger dStatus = new AtomicInteger(IDLE);
 
     /**
      * Returns whether maintenance work is needed.
@@ -3263,15 +3275,18 @@ final class BLCHeader {
     }
 
     int drainStatus() {
-      return UnsafeAccess.UNSAFE.getInt(this, DRAIN_STATUS_OFFSET);
+      return dStatus.get();//UnsafeAccess.UNSAFE.getInt(this, DRAIN_STATUS_OFFSET);
     }
 
     void lazySetDrainStatus(int drainStatus) {
-      UnsafeAccess.UNSAFE.putOrderedInt(this, DRAIN_STATUS_OFFSET, drainStatus);
+      dStatus.set(drainStatus);
+//      this.drainStatus = drainStatus;
+//      UnsafeAccess.UNSAFE.putOrderedInt(this, DRAIN_STATUS_OFFSET, drainStatus);
     }
 
     boolean casDrainStatus(int expect, int update) {
-      return UnsafeAccess.UNSAFE.compareAndSwapInt(this, DRAIN_STATUS_OFFSET, expect, update);
+      return dStatus.compareAndSet(expect, update);
+//      return UnsafeAccess.UNSAFE.compareAndSwapInt(this, DRAIN_STATUS_OFFSET, expect, update);
     }
   }
 }
