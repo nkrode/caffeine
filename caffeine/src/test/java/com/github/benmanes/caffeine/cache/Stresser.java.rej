@@ -1,0 +1,82 @@
+diff a/caffeine/src/test/java/com/github/benmanes/caffeine/cache/Stresser.java b/caffeine/src/test/java/com/github/benmanes/caffeine/cache/Stresser.java	(rejected hunks)
+@@ -41,14 +41,14 @@ import com.google.common.util.concurrent.ThreadFactoryBuilder;
+ public final class Stresser {
+   private static final String[] STATUS =
+     { "Idle", "Required", "Processing -> Idle", "Processing -> Required" };
+-  private static final int THREADS = 2 * Runtime.getRuntime().availableProcessors();
++  private static final int THREADS = 2;// * Runtime.getRuntime().availableProcessors();
+   private static final int WRITE_MAX_SIZE = (1 << 12);
+   private static final int TOTAL_KEYS = (1 << 20);
+   private static final int MASK = TOTAL_KEYS - 1;
+   private static final int STATUS_INTERVAL = 5;
+ 
+   private final BoundedLocalCache<Integer, Integer> local;
+-  private final Cache<Integer, Integer> cache;
++  private final LoadingCache<Integer, Integer> cache;
+   private final Integer[] ints;
+ 
+   private final int maximum;
+@@ -67,9 +67,14 @@ public final class Stresser {
+     maximum = reads ? TOTAL_KEYS : WRITE_MAX_SIZE;
+     cache = Caffeine.newBuilder()
+         .maximumSize(maximum)
++        //.executor(Executors.newWorkStealingPool())
+         .recordStats()
+-        .build();
+-    local = (BoundedLocalCache<Integer, Integer>) cache.asMap();
++//        .build(k -> k);
++        .<Integer, Integer>buildAsync(k -> k)
++        .synchronous();
++    LocalAsyncLoadingCache.AsMapView view = (LocalAsyncLoadingCache.AsMapView) cache.asMap();
++    local = (BoundedLocalCache<Integer, Integer>) view.delegate;
++//    local = (BoundedLocalCache<Integer, Integer>) cache.asMap();
+     ints = new Integer[TOTAL_KEYS];
+     Arrays.setAll(ints, key -> {
+       cache.put(key, key);
+@@ -88,9 +93,10 @@ public final class Stresser {
+         if (reads) {
+           cache.getIfPresent(key);
+         } else {
+-          cache.put(key, key);
++          cache.refresh(key);
++          //cache.cleanUp();
+         }
+-        if (times > 5) {
++        if (times > 10) {
+           return;
+         }
+       }
+@@ -113,14 +118,17 @@ public final class Stresser {
+   }
+ 
+   private void status() {
+-    local.evictionLock.lock();
++    local.evictionLock.acquireUninterruptibly();
++    System.out.println("acquire: status");
+     int pendingWrites = local.writeBuffer().size();
+-    local.evictionLock.unlock();
++    int drainStatus = local.drainStatus();
++    System.out.println("release: status");
++    local.evictionLock.release();
+ 
+     LocalTime elapsedTime = LocalTime.ofSecondOfDay(stopwatch.elapsed(TimeUnit.SECONDS));
+     System.out.printf("---------- %s ----------%n", elapsedTime);
+     System.out.printf("Pending reads: %,d; writes: %,d%n", local.readBuffer.size(), pendingWrites);
+-    System.out.printf("Drain status = %s%n", STATUS[local.drainStatus]);
++    System.out.printf("Drain status = %s (%s)%n", STATUS[drainStatus], drainStatus);
+     System.out.printf("Evictions = %,d%n", cache.stats().evictionCount());
+     System.out.printf("Size = %,d (max: %,d)%n", local.data.mappingCount(), maximum);
+     System.out.printf("Lock = [%s%n", StringUtils.substringAfter(
+@@ -134,10 +142,10 @@ public final class Stresser {
+     System.out.printf("Max Memory = %,d bytes%n", maxMemory);
+     System.out.printf("Free Memory = %,d bytes%n", freeMemory);
+     System.out.printf("Allocated Memory = %,d bytes%n", allocatedMemory);
++    times++;
+ 
++    System.out.println("Finished iteration #" + times);
+     System.out.println();
+-
+-    times++;
+   }
+ 
+   public static void main(String[] args) throws Exception {

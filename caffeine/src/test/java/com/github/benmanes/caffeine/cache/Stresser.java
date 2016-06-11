@@ -105,10 +105,9 @@ public final class Stresser {
     System.out.println("Waiting...");
     try {
       await().until(() -> {
-        cache.cleanUp();
-        local.evictionLock.lock();
+        //local.evictionLock.acquireUninterruptibly();
         int pendingWrites = local.writeBuffer().size();
-        local.evictionLock.unlock();
+        //local.evictionLock.release();
         return pendingWrites == 0;
       });
     } catch (Throwable t) {
@@ -119,10 +118,10 @@ public final class Stresser {
   }
 
   private void status() {
-    local.evictionLock.lock();
+    local.evictionLock.acquireUninterruptibly();
     int pendingWrites = local.writeBuffer().size();
     int drainStatus = local.drainStatus();
-    local.evictionLock.unlock();
+    local.evictionLock.release();
 
     LocalTime elapsedTime = LocalTime.ofSecondOfDay(stopwatch.elapsed(TimeUnit.SECONDS));
     System.out.printf("---------- %s ----------%n", elapsedTime);

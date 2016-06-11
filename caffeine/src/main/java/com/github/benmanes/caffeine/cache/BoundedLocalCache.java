@@ -47,13 +47,11 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
-import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinTask;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -159,7 +157,7 @@ abstract class BoundedLocalCache<K, V> extends BLCHeader.DrainStatusRef<K, V>
   final CacheWriter<K, V> writer;
   final NodeFactory nodeFactory;
   final Weigher<K, V> weigher;
-  final Lock evictionLock;
+  final Semaphore evictionLock;
   final Executor executor;
   final boolean isAsync;
 
@@ -178,9 +176,7 @@ abstract class BoundedLocalCache<K, V> extends BLCHeader.DrainStatusRef<K, V>
     weigher = builder.getWeigher(isAsync);
     drainBuffersTask = new PerformCleanupTask();
     data = new ConcurrentHashMap<>(builder.getInitialCapacity());
-    evictionLock = (builder.getExecutor() instanceof ForkJoinPool)
-        ? new ReentrantLock()
-        : new ReentrantLock();
+    evictionLock = new Semaphore(1);
     nodeFactory = NodeFactory.getFactory(builder.isStrongKeys(), builder.isWeakKeys(),
         builder.isStrongValues(), builder.isWeakValues(), builder.isSoftValues(),
         builder.expiresAfterAccess(), builder.expiresAfterWrite(), builder.refreshes(),
@@ -917,6 +913,7 @@ abstract class BoundedLocalCache<K, V> extends BLCHeader.DrainStatusRef<K, V>
       }
     }
     scheduleAfterWrite();
+    scheduleDrainBuffers();
   }
 
   /**
@@ -954,21 +951,24 @@ abstract class BoundedLocalCache<K, V> extends BLCHeader.DrainStatusRef<K, V>
    */
   void scheduleDrainBuffers() {
     if (drainStatus() >= PROCESSING_TO_IDLE) {
-      return;
+      //return;
     }
-    if (evictionLock.tryLock()) {
+    if (evictionLock.tryAcquire()) {
+      System.out.println("acquire: scheduleDrainBuffers");
       try {
         int drainStatus = drainStatus();
         if (drainStatus >= PROCESSING_TO_IDLE) {
-          return;
+//          return;
         }
         lazySetDrainStatus(PROCESSING_TO_IDLE);
         executor().execute(drainBuffersTask);
+        System.out.println("scheduled drainBuffersTask");
       } catch (Throwable t) {
         logger.log(Level.WARNING, "Exception thrown when submitting maintenance task", t);
         performCleanUp();
+        System.out.println("release: scheduleDrainBuffers");
+        evictionLock.release();
       } finally {
-        evictionLock.unlock();
       }
     }
   }
@@ -976,6 +976,8 @@ abstract class BoundedLocalCache<K, V> extends BLCHeader.DrainStatusRef<K, V>
   @Override
   public void cleanUp() {
     try {
+      evictionLock.acquireUninterruptibly();
+      System.out.println("acquire: cleanUp");
       performCleanUp();
     } catch (RuntimeException e) {
       logger.log(Level.SEVERE, "Exception thrown when performing the maintenance task", e);
@@ -988,7 +990,6 @@ abstract class BoundedLocalCache<K, V> extends BLCHeader.DrainStatusRef<K, V>
    * {@link CacheWriter#delete()}, is propagated to the caller.
    */
   void performCleanUp() {
-    evictionLock.lock();
     System.out.printf("begin: performCleanUp -> %s%n", dStatus.get());
     try {
       lazySetDrainStatus(PROCESSING_TO_IDLE);
@@ -1006,7 +1007,8 @@ abstract class BoundedLocalCache<K, V> extends BLCHeader.DrainStatusRef<K, V>
         }
       }
       System.out.printf("exit: performCleanUp -> %s%n", dStatus.get());
-      evictionLock.unlock();
+      System.out.println("release: performCleanUp");
+      evictionLock.release();
     }
   }
 
@@ -1307,7 +1309,7 @@ abstract class BoundedLocalCache<K, V> extends BLCHeader.DrainStatusRef<K, V>
   public void clear() {
     long now = expirationTicker().read();
 
-    evictionLock.lock();
+    evictionLock.acquireUninterruptibly();
     try {
       // Apply all pending writes
       Runnable task;
@@ -1331,7 +1333,7 @@ abstract class BoundedLocalCache<K, V> extends BLCHeader.DrainStatusRef<K, V>
       // Discard all pending reads
       readBuffer.drainTo(e -> {});
     } finally {
-      evictionLock.unlock();
+      evictionLock.release();
     }
   }
 
@@ -2308,7 +2310,7 @@ abstract class BoundedLocalCache<K, V> extends BLCHeader.DrainStatusRef<K, V>
    */
   Map<K, V> snapshot(Iterator<Node<K, V>> iterator, Function<V, V> transformer, int limit) {
     Caffeine.requireArgument(limit >= 0);
-    evictionLock.lock();
+    evictionLock.acquireUninterruptibly();
     try {
       maintenance();
 
@@ -2325,7 +2327,7 @@ abstract class BoundedLocalCache<K, V> extends BLCHeader.DrainStatusRef<K, V>
       }
       return Collections.unmodifiableMap(map);
     } finally {
-      evictionLock.unlock();
+      evictionLock.release();
     }
   }
 
@@ -2838,7 +2840,11 @@ abstract class BoundedLocalCache<K, V> extends BLCHeader.DrainStatusRef<K, V>
 
     @Override
     public void run() {
-      performCleanUp();
+      try {
+        performCleanUp();
+      } catch (Throwable t) {
+        logger.log(Level.SEVERE, "Exception thrown when performing the maintenance task", t);
+      }
     }
 
     /**
@@ -2979,11 +2985,11 @@ abstract class BoundedLocalCache<K, V> extends BLCHeader.DrainStatusRef<K, V>
       }
       @Override public OptionalLong weightedSize() {
         if (cache.evicts() && isWeighted()) {
-          cache.evictionLock.lock();
+          cache.evictionLock.acquireUninterruptibly();
           try {
             return OptionalLong.of(cache.adjustedWeightedSize());
           } finally {
-            cache.evictionLock.unlock();
+            cache.evictionLock.release();
           }
         }
         return OptionalLong.empty();
@@ -2992,12 +2998,12 @@ abstract class BoundedLocalCache<K, V> extends BLCHeader.DrainStatusRef<K, V>
         return cache.maximum();
       }
       @Override public void setMaximum(long maximum) {
-        cache.evictionLock.lock();
+        cache.evictionLock.acquireUninterruptibly();
         try {
           cache.setMaximum(maximum);
           cache.maintenance();
         } finally {
-          cache.evictionLock.unlock();
+          cache.evictionLock.release();
         }
       }
       @Override public Map<K, V> coldest(int limit) {
