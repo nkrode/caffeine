@@ -47,7 +47,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
-import java.util.concurrent.ForkJoinTask;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
@@ -961,7 +960,7 @@ abstract class BoundedLocalCache<K, V> extends BLCHeader.DrainStatusRef<K, V>
 //          return;
         }
         lazySetDrainStatus(PROCESSING_TO_IDLE);
-        executor().execute(drainBuffersTask);
+        executor().execute(new PerformCleanupTask());
         System.out.println("scheduled drainBuffersTask");
       } catch (Throwable t) {
         logger.log(Level.WARNING, "Exception thrown when submitting maintenance task", t);
@@ -2823,20 +2822,8 @@ abstract class BoundedLocalCache<K, V> extends BLCHeader.DrainStatusRef<K, V>
   }
 
   /** A reusable task that performs the maintenance work; used to avoid wrapping by ForkJoinPool. */
-  final class PerformCleanupTask extends ForkJoinTask<Void> implements Runnable {
+  final class PerformCleanupTask implements Runnable {
     private static final long serialVersionUID = 1L;
-
-    @Override
-    public boolean exec() {
-      try {
-        run();
-      } catch (Throwable t) {
-        logger.log(Level.SEVERE, "Exception thrown when performing the maintenance task", t);
-      }
-
-      // Indicates that the task has not completed to allow subsequent submissions to execute
-      return false;
-    }
 
     @Override
     public void run() {
@@ -2846,19 +2833,6 @@ abstract class BoundedLocalCache<K, V> extends BLCHeader.DrainStatusRef<K, V>
         logger.log(Level.SEVERE, "Exception thrown when performing the maintenance task", t);
       }
     }
-
-    /**
-     * This method cannot be ignored due to being final, so a hostile user supplied Executor could
-     * forcibly complete the task and halt future executions. There are easier ways to intentionally
-     * harm a system, so this is assumed to not happen in practice.
-     */
-    // public final void quietlyComplete() {}
-
-    @Override public Void getRawResult() { return null; }
-    @Override public void setRawResult(Void v) {}
-    @Override public void complete(Void value) {}
-    @Override public void completeExceptionally(Throwable ex) {}
-    @Override public boolean cancel(boolean mayInterruptIfRunning) { return false; }
   }
 
   /** Creates a serialization proxy based on the common configuration shared by all cache types. */

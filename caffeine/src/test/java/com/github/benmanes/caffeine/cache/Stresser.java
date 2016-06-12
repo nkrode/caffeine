@@ -67,7 +67,7 @@ public final class Stresser {
     maximum = reads ? TOTAL_KEYS : WRITE_MAX_SIZE;
     cache = Caffeine.newBuilder()
         .maximumSize(maximum)
-        //.executor(Executors.newWorkStealingPool())
+        .executor(Executors.newWorkStealingPool())
         .recordStats()
 //        .build(k -> k);
         .<Integer, Integer>buildAsync(k -> k)

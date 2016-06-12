@@ -131,7 +131,7 @@ abstract class LocalAsyncLoadingCache<C extends LocalCache<K, CompletableFuture<
     }, recordStats, /* recordLoad */ false);
     if (result[0] != null) {
       AtomicBoolean completed = new AtomicBoolean();
-      result[0].whenCompleteAsync((value, error) -> {
+      result[0].whenComplete((value, error) -> {
         if (!completed.compareAndSet(false, true)) {
           // Ignore multiple invocations due to ForkJoinPool retrying on delays
           return;
@@ -193,7 +193,7 @@ abstract class LocalAsyncLoadingCache<C extends LocalCache<K, CompletableFuture<
     }
 
     loader.asyncLoadAll(proxies.keySet(), cache.executor())
-        .whenCompleteAsync(new AsyncBulkCompleter(proxies));
+        .whenComplete(new AsyncBulkCompleter(proxies));
     return composeResult(futures);
   }
 
@@ -231,7 +231,7 @@ abstract class LocalAsyncLoadingCache<C extends LocalCache<K, CompletableFuture<
     AtomicBoolean completed = new AtomicBoolean();
     long startTime = cache.statsTicker().read();
     cache.put(key, valueFuture);
-    valueFuture.whenCompleteAsync((value, error) -> {
+    valueFuture.whenComplete((value, error) -> {
       if (!completed.compareAndSet(false, true)) {
         // Ignore multiple invocations due to ForkJoinPool retrying on delays
         return;
@@ -467,7 +467,7 @@ abstract class LocalAsyncLoadingCache<C extends LocalCache<K, CompletableFuture<
         CompletableFuture<V> refreshFuture = (oldValue == null)
             ? loader.asyncLoad(key, cache.executor())
             : loader.asyncReload(key, oldValue, cache.executor());
-        refreshFuture.whenCompleteAsync((newValue, error) -> {
+        refreshFuture.whenComplete((newValue, error) -> {
           long loadTime = cache.statsTicker().read() - now;
           if (error != null) {
             cache.statsCounter().recordLoadFailure(loadTime);

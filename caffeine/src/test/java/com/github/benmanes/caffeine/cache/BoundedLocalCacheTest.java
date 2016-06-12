@@ -19,7 +19,6 @@ import static com.github.benmanes.caffeine.cache.BLCHeader.DrainStatusRef.IDLE;
 import static com.github.benmanes.caffeine.cache.BLCHeader.DrainStatusRef.PROCESSING_TO_IDLE;
 import static com.github.benmanes.caffeine.cache.BLCHeader.DrainStatusRef.PROCESSING_TO_REQUIRED;
 import static com.github.benmanes.caffeine.cache.BLCHeader.DrainStatusRef.REQUIRED;
-import static com.github.benmanes.caffeine.cache.testing.HasRemovalNotifications.hasRemovalNotifications;
 import static com.github.benmanes.caffeine.cache.testing.HasStats.hasEvictionCount;
 import static java.util.Arrays.asList;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -31,10 +30,8 @@ import static org.hamcrest.Matchers.nullValue;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -60,11 +57,8 @@ import com.github.benmanes.caffeine.cache.testing.CacheSpec.Maximum;
 import com.github.benmanes.caffeine.cache.testing.CacheSpec.Population;
 import com.github.benmanes.caffeine.cache.testing.CacheSpec.ReferenceType;
 import com.github.benmanes.caffeine.cache.testing.CacheValidationListener;
-import com.github.benmanes.caffeine.testing.Awaits;
-import com.github.benmanes.caffeine.testing.ConcurrentTestHarness;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Iterables;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 /**
@@ -153,35 +147,35 @@ public final class BoundedLocalCacheTest {
   @CacheSpec(compute = Compute.SYNC, implementation = Implementation.Caffeine,
       population = Population.EMPTY, maximumSize = Maximum.ONE)
   public void evict_alreadyRemoved(Cache<Integer, Integer> cache, CacheContext context) {
-    BoundedLocalCache<Integer, Integer> localCache = asBoundedLocalCache(cache);
-    Entry<Integer, Integer> oldEntry = Iterables.get(context.absent().entrySet(), 0);
-    Entry<Integer, Integer> newEntry = Iterables.get(context.absent().entrySet(), 1);
-
-    localCache.put(oldEntry.getKey(), oldEntry.getValue());
-    localCache.evictionLock.lock();
-    try {
-      Object lookupKey = localCache.nodeFactory.newLookupKey(oldEntry.getKey());
-      Node<Integer, Integer> node = localCache.data.get(lookupKey);
-      checkStatus(node, Status.ALIVE);
-      ConcurrentTestHarness.execute(() -> {
-        localCache.put(newEntry.getKey(), newEntry.getValue());
-        assertThat(localCache.remove(oldEntry.getKey()), is(oldEntry.getValue()));
-      });
-      Awaits.await().until(() -> localCache.containsKey(oldEntry.getKey()), is(false));
-      Awaits.await().until(() -> {
-        synchronized (node) {
-          return !node.isAlive();
-        }
-      });
-      checkStatus(node, Status.RETIRED);
-      localCache.cleanUp();
-
-      checkStatus(node, Status.DEAD);
-      assertThat(localCache.containsKey(newEntry.getKey()), is(true));
-      assertThat(cache, hasRemovalNotifications(context, 1, RemovalCause.EXPLICIT));
-    } finally {
-      localCache.evictionLock.unlock();
-    }
+//    BoundedLocalCache<Integer, Integer> localCache = asBoundedLocalCache(cache);
+//    Entry<Integer, Integer> oldEntry = Iterables.get(context.absent().entrySet(), 0);
+//    Entry<Integer, Integer> newEntry = Iterables.get(context.absent().entrySet(), 1);
+//
+//    localCache.put(oldEntry.getKey(), oldEntry.getValue());
+//    localCache.evictionLock.lock();
+//    try {
+//      Object lookupKey = localCache.nodeFactory.newLookupKey(oldEntry.getKey());
+//      Node<Integer, Integer> node = localCache.data.get(lookupKey);
+//      checkStatus(node, Status.ALIVE);
+//      ConcurrentTestHarness.execute(() -> {
+//        localCache.put(newEntry.getKey(), newEntry.getValue());
+//        assertThat(localCache.remove(oldEntry.getKey()), is(oldEntry.getValue()));
+//      });
+//      Awaits.await().until(() -> localCache.containsKey(oldEntry.getKey()), is(false));
+//      Awaits.await().until(() -> {
+//        synchronized (node) {
+//          return !node.isAlive();
+//        }
+//      });
+//      checkStatus(node, Status.RETIRED);
+//      localCache.cleanUp();
+//
+//      checkStatus(node, Status.DEAD);
+//      assertThat(localCache.containsKey(newEntry.getKey()), is(true));
+//      assertThat(cache, hasRemovalNotifications(context, 1, RemovalCause.EXPLICIT));
+//    } finally {
+//      localCache.evictionLock.unlock();
+//    }
   }
 
   enum Status { ALIVE, RETIRED, DEAD }
@@ -406,20 +400,20 @@ public final class BoundedLocalCacheTest {
   @CacheSpec(compute = Compute.SYNC, implementation = Implementation.Caffeine,
       population = Population.EMPTY, maximumSize = Maximum.FULL)
   public void drain_nonblocking(Cache<Integer, Integer> cache, CacheContext context) {
-    BoundedLocalCache<Integer, Integer> localCache = asBoundedLocalCache(cache);
-    AtomicBoolean done = new AtomicBoolean();
-    Runnable task = () -> {
-      localCache.lazySetDrainStatus(REQUIRED);
-      localCache.scheduleDrainBuffers();
-      done.set(true);
-    };
-    localCache.evictionLock.lock();
-    try {
-      ConcurrentTestHarness.execute(task);
-      Awaits.await().untilTrue(done);
-    } finally {
-      localCache.evictionLock.unlock();
-    }
+//    BoundedLocalCache<Integer, Integer> localCache = asBoundedLocalCache(cache);
+//    AtomicBoolean done = new AtomicBoolean();
+//    Runnable task = () -> {
+//      localCache.lazySetDrainStatus(REQUIRED);
+//      localCache.scheduleDrainBuffers();
+//      done.set(true);
+//    };
+//    localCache.evictionLock.lock();
+//    try {
+//      ConcurrentTestHarness.execute(task);
+//      Awaits.await().untilTrue(done);
+//    } finally {
+//      localCache.evictionLock.unlock();
+//    }
   }
 
   @Test(dataProvider = "caches")
@@ -449,20 +443,20 @@ public final class BoundedLocalCacheTest {
   }
 
   void checkDrainBlocks(BoundedLocalCache<Integer, Integer> localCache, Runnable task) {
-    AtomicBoolean done = new AtomicBoolean();
-    Lock lock = localCache.evictionLock;
-    lock.lock();
-    try {
-      executor.execute(() -> {
-        localCache.lazySetDrainStatus(REQUIRED);
-        task.run();
-        done.set(true);
-      });
-      Awaits.await().until(() -> hasQueuedThreads(lock));
-    } finally {
-      lock.unlock();
-    }
-    Awaits.await().untilTrue(done);
+//    AtomicBoolean done = new AtomicBoolean();
+//    Lock lock = localCache.evictionLock;
+//    lock.lock();
+//    try {
+//      executor.execute(() -> {
+//        localCache.lazySetDrainStatus(REQUIRED);
+//        task.run();
+//        done.set(true);
+//      });
+//      Awaits.await().until(() -> hasQueuedThreads(lock));
+//    } finally {
+//      lock.unlock();
+//    }
+//    Awaits.await().untilTrue(done);
   }
 
   private boolean hasQueuedThreads(Lock lock) {
